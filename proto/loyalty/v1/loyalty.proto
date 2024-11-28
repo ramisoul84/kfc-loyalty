@@ -1,0 +1,183 @@
+syntax = "proto3";
+
+package kfc.loyalty.v1;
+
+option go_package = "github.com/ramisoul84/kfc-loyalty/gen/loyalty/v1;loyaltyv1";
+
+// LoyaltyService owns loyalty members and their points.
+// Source of truth: kfc-loyalty Postgres (members, ledger, holds, member_codes).
+//
+// 1 point = 1 ruble of discount. Points are earned on handed-over orders
+// and spent with a two-phase reserve → commit, so a failed checkout never
+// loses points. Order events (Kafka orders.events) drive earning, commit
+// reconciliation and refunds on cancellation.
+//
+// Callers:
+//   kfc-userapi — sign-in (UpsertMemberByPhone), profile, kiosk codes,
+//                 reserve/commit/release at checkout.
+//   kfc-crm     — member search and manual adjustments.
+service LoyaltyService {
+  rpc GetProgram(GetProgramRequest) returns (Program);
+
+  rpc UpsertMemberByPhone(UpsertMemberByPhoneRequest) returns (UpsertMemberResponse);
+  rpc GetMember(GetMemberRequest) returns (Member);
+  rpc UpdateMember(UpdateMemberRequest) returns (Member);
+  rpc ListTransactions(ListTransactionsRequest) returns (ListTransactionsResponse);
+
+  // Short-lived, single-use code the customer shows at a kiosk (QR or digits).
+  rpc IssueMemberCode(IssueMemberCodeRequest) returns (MemberCode);
+  rpc ResolveMemberCode(ResolveMemberCodeRequest) returns (Member);
+
+  // Two-phase redemption.
+  rpc ReservePoints(ReservePointsRequest) returns (Hold);
+  rpc CommitHold(CommitHoldRequest) returns (Hold);
+  rpc ReleaseHold(ReleaseHoldRequest) returns (Hold);
+
+  // Back office.
+  rpc ListMembers(ListMembersRequest) returns (ListMembersResponse);
+  rpc AdjustPoints(AdjustPointsRequest) returns (Member);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Program
+// ─────────────────────────────────────────────────────────────────
+
+message GetProgramRequest {}
+
+message Program {
+  int32 earn_percent        = 1; // points earned per 100 ₽ paid
+  int32 max_redeem_percent  = 2; // max share of an order payable with points
+  int32 welcome_bonus       = 3; // points granted on sign-up
+  int64 point_value_kopecks = 4; // value of one point (100 = 1 ₽)
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Members
+// ─────────────────────────────────────────────────────────────────
+
+message Member {
+  string id               = 1;
+  string phone            = 2; // E.164
+  string first_name       = 3;
+  string email            = 4;
+  int32  points_balance   = 5; // committed balance
+  int32  points_available = 6; // balance minus active holds
+  int32  lifetime_points  = 7; // total ever earned
+  int64  created_at       = 8; // unix millis
+}
+
+message UpsertMemberByPhoneRequest {
+  string phone      = 1; // E.164
+  string first_name = 2; // optional, used only when creating
+}
+
+message UpsertMemberResponse {
+  Member member  = 1;
+  bool   created = 2;
+}
+
+message GetMemberRequest {
+  string id = 1;
+}
+
+message UpdateMemberRequest {
+  string id         = 1;
+  string first_name = 2;
+  string email      = 3;
+}
+
+message Transaction {
+  string id            = 1;
+  string type          = 2; // welcome | earn | redeem | refund | adjust
+  int32  points        = 3; // signed
+  int32  balance_after = 4;
+  string order_id      = 5;
+  int32  order_number  = 6;
+  string restaurant_id = 7;
+  string description   = 8;
+  int64  created_at    = 9;
+}
+
+message ListTransactionsRequest {
+  string member_id = 1;
+  int32  limit     = 2;
+  int32  offset    = 3;
+}
+
+message ListTransactionsResponse {
+  repeated Transaction transactions = 1;
+  int32 total = 2;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Kiosk identification
+// ─────────────────────────────────────────────────────────────────
+
+message IssueMemberCodeRequest {
+  string member_id = 1;
+}
+
+message MemberCode {
+  string code       = 1; // 8 digits
+  int64  expires_at = 2; // unix millis
+}
+
+message ResolveMemberCodeRequest {
+  string code = 1;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Redemption
+// ─────────────────────────────────────────────────────────────────
+
+message Hold {
+  string id         = 1;
+  string member_id  = 2;
+  int32  points     = 3;
+  string status     = 4; // held | committed | released
+  string order_id   = 5;
+  int64  expires_at = 6;
+}
+
+message ReservePointsRequest {
+  string member_id = 1;
+  int32  points    = 2;
+  // Idempotency: the same reference returns the same hold.
+  string reference = 3;
+  // Order subtotal in kopecks; points may cover at most
+  // Program.max_redeem_percent of it.
+  int64  order_subtotal = 4;
+}
+
+message CommitHoldRequest {
+  string hold_id       = 1;
+  string order_id      = 2;
+  int32  order_number  = 3;
+  string restaurant_id = 4;
+}
+
+message ReleaseHoldRequest {
+  string hold_id = 1;
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Back office
+// ─────────────────────────────────────────────────────────────────
+
+message ListMembersRequest {
+  string search = 1; // phone digits or name
+  int32  limit  = 2;
+  int32  offset = 3;
+}
+
+message ListMembersResponse {
+  repeated Member members = 1;
+  int32 total = 2;
+}
+
+message AdjustPointsRequest {
+  string member_id = 1;
+  int32  points    = 2; // signed
+  string reason    = 3;
+  string actor     = 4; // "user:<id>"
+}

@@ -56,6 +56,17 @@ func (c *OrderConsumer) Handle(ctx context.Context, _ string, value []byte) erro
 	}
 	info := domain.OrderInfo{ID: o.ID, Number: o.Number, RestaurantID: o.RestaurantID}
 
+	err := c.apply(ctx, &evt, info)
+	// A missing member or hold won't appear on retry: log and move on.
+	if domain.IsNotFoundError(err) {
+		c.logger.Warn("order event refers to unknown loyalty data", "order_id", o.ID, "error", err)
+		return nil
+	}
+	return err
+}
+
+func (c *OrderConsumer) apply(ctx context.Context, evt *orderEvent, info domain.OrderInfo) error {
+	o := evt.Order
 	switch {
 	case evt.Type == "order.created" && o.LoyaltyHoldID != nil:
 		_, err := c.svc.Commit(ctx, *o.LoyaltyHoldID, info)

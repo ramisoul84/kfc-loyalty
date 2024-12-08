@@ -32,6 +32,13 @@ type Consumer struct {
 // Option tweaks the consumer.
 type Option func(*Consumer, *kafka.ReaderConfig)
 
+// StartAtLatest makes a brand-new consumer group start from the newest
+// message instead of the oldest. Use it for live fan-out (SSE), where
+// replaying history to screens would be wrong.
+func StartAtLatest() Option {
+	return func(_ *Consumer, c *kafka.ReaderConfig) { c.StartOffset = kafka.LastOffset }
+}
+
 // RetryHandler retries a failing handler up to attempts times with
 // backoff before committing past the message. Use it when a message
 // carries money-like state (points) and a transient error must not drop it.

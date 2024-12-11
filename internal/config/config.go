@@ -42,12 +42,15 @@ type LoggerConfig struct {
 }
 
 type DatabaseConfig struct {
-	Host            string
-	Port            string
-	User            string
-	Password        string
-	Name            string
-	SSLMode         string
+	Host     string
+	Port     string
+	User     string
+	Password string
+	Name     string
+	SSLMode  string
+	// AllowInsecure permits DB_SSL_MODE=disable in production. Only for a
+	// database on the same private network (e.g. the compose stack).
+	AllowInsecure   bool
 	MaxConns        int
 	MinConns        int
 	MaxConnLifetime time.Duration
@@ -103,6 +106,7 @@ func Load() (*Config, error) {
 			Password:        getEnv("DB_PASSWORD", "postgres"),
 			Name:            getEnv("DB_NAME", "kfc_loyalty"),
 			SSLMode:         getEnv("DB_SSL_MODE", "disable"),
+			AllowInsecure:   getEnvBool("DB_ALLOW_INSECURE", false),
 			MaxConns:        getEnvInt("DB_MAX_CONNS", 20),
 			MinConns:        getEnvInt("DB_MIN_CONNS", 5),
 			MaxConnLifetime: getEnvDuration("DB_MAX_CONN_LIFETIME", time.Hour),
@@ -154,8 +158,8 @@ func (c *Config) Validate() error {
 	if p.HoldTTL < time.Minute || p.CodeTTL < 30*time.Second {
 		errs = append(errs, "LOYALTY_HOLD_TTL must be ≥1m and LOYALTY_CODE_TTL ≥30s")
 	}
-	if c.IsProduction() && c.DB.SSLMode == "disable" {
-		errs = append(errs, "DB_SSL_MODE should not be 'disable' in production")
+	if c.IsProduction() && c.DB.SSLMode == "disable" && !c.DB.AllowInsecure {
+		errs = append(errs, "DB_SSL_MODE should not be 'disable' in production (or set DB_ALLOW_INSECURE=true for a database on a private network)")
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("%s", strings.Join(errs, "; "))

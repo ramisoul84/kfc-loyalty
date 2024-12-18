@@ -54,7 +54,7 @@ func New(cfg *config.Config) (*App, error) {
 	if cfg.DB.AutoMigrate {
 		applied, err := migrate.Up(context.Background(), db.DB, migrations.FS)
 		if err != nil {
-			db.Close()
+			_ = db.Close()
 			return nil, fmt.Errorf("migrate: %w", err)
 		}
 		log.Info("migrations up to date", "applied", applied)

@@ -1,0 +1,25 @@
+# Lint config used locally and in CI (golangci-lint v2).
+version: "2"
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  settings:
+    errcheck:
+      # Deferred cleanup whose error has nowhere useful to go.
+      exclude-functions:
+        - (io.Closer).Close
+        - (mime/multipart.File).Close
+        - (net.Conn).Close
+        - (*database/sql.Tx).Rollback
+        - (*database/sql.Conn).Close
+        - (*github.com/jmoiron/sqlx.Tx).Rollback
+        - (*github.com/jmoiron/sqlx.Conn).Close
+    staticcheck:
+      checks:
+        - all
+        - -QF1008 # embedded-field selectors: style only
+        - -ST1000 # package comments
+        - -ST1003 # initialisms (existing public API names)
+        - -ST1020 # comment form on exported methods
+        - -ST1021
+        - -ST1022

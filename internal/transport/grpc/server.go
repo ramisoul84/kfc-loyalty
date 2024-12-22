@@ -23,7 +23,7 @@ type Transport struct {
 
 // NewTransport creates a gRPC server and registers all gRPC services.
 func NewTransport(cfg *config.Config, log *logger.Logger, loyaltyServer *LoyaltyServer) *Transport {
-	srv := grpc.NewServer()
+	srv := grpc.NewServer(serverOptions(log)...)
 
 	loyaltyv1.RegisterLoyaltyServiceServer(srv, loyaltyServer)
 

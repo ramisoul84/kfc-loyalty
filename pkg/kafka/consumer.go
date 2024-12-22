@@ -8,6 +8,7 @@ import (
 	"github.com/segmentio/kafka-go"
 
 	"github.com/ramisoul84/kfc-loyalty/pkg/logger"
+	"github.com/ramisoul84/kfc-loyalty/pkg/metrics"
 )
 
 // MessageHandler processes a single Kafka message.
@@ -112,7 +113,13 @@ func (c *Consumer) Start(ctx context.Context) {
 				"key", string(msg.Key),
 			)
 
-			if err := c.handle(ctx, msg); err != nil {
+			err = c.handle(ctx, msg)
+			result := "ok"
+			if err != nil {
+				result = "failed"
+			}
+			metrics.KafkaMessages.WithLabelValues(msg.Topic, result).Inc()
+			if err != nil {
 				c.logger.Error("kafka handler failed",
 					"topic", msg.Topic,
 					"partition", msg.Partition,

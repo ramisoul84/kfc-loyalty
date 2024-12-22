@@ -167,6 +167,9 @@ func (r *repo) Credit(ctx context.Context, c *domain.Credit) (*domain.Entry, err
 		entry, err = credit(ctx, tx, c)
 		return err
 	})
+	if err == nil {
+		countPoints(entry)
+	}
 	return entry, err
 }
 
@@ -367,6 +370,7 @@ func (r *repo) GetHold(ctx context.Context, id uuid.UUID) (*domain.Hold, error) 
 // take the balance below zero; it is logged by the service.
 func (r *repo) CommitHold(ctx context.Context, id uuid.UUID, order domain.OrderInfo) (*domain.Hold, error) {
 	var hold domain.Hold
+	committedNow := false
 	err := r.inTx(ctx, func(tx *sqlx.Tx) error {
 		err := tx.GetContext(ctx, &hold, `SELECT `+holdColumns+` FROM holds WHERE id = $1 FOR UPDATE`, id)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -378,6 +382,7 @@ func (r *repo) CommitHold(ctx context.Context, id uuid.UUID, order domain.OrderI
 		if hold.Status == domain.HoldCommitted {
 			return nil // idempotent
 		}
+		committedNow = true
 
 		_, err = credit(ctx, tx, &domain.Credit{
 			MemberID:      hold.MemberID,
@@ -400,6 +405,9 @@ func (r *repo) CommitHold(ctx context.Context, id uuid.UUID, order domain.OrderI
 	})
 	if err != nil {
 		return nil, err
+	}
+	if committedNow {
+		pointsTotal.WithLabelValues(string(domain.EntryRedeem)).Add(float64(hold.Points))
 	}
 	return &hold, nil
 }
@@ -479,4 +487,15 @@ func (r *repo) inTx(ctx context.Context, fn func(tx *sqlx.Tx) error) error {
 		return domain.NewInternalError(fmt.Errorf("commit: %w", err))
 	}
 	return nil
+}
+
+func countPoints(e *domain.Entry) {
+	if e == nil {
+		return
+	}
+	p := e.Points
+	if p < 0 {
+		p = -p
+	}
+	pointsTotal.WithLabelValues(string(e.Type)).Add(float64(p))
 }

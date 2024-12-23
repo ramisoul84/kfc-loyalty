@@ -2,6 +2,9 @@ package config
 
 import (
 	"fmt"
+	"net"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -170,11 +173,20 @@ func (c *Config) Validate() error {
 func (c *Config) IsProduction() bool { return c.App.Environment == "production" }
 
 func (c *Config) DSN() string {
-	return fmt.Sprintf(
-		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s connect_timeout=%d",
-		c.DB.Host, c.DB.Port, c.DB.User, c.DB.Password,
-		c.DB.Name, c.DB.SSLMode, int(c.DB.ConnectTimeout.Seconds()),
-	)
+	// URL form: user and password are percent-encoded, so secrets may
+	// contain spaces, quotes or any other character.
+	q := url.Values{
+		"sslmode":         {c.DB.SSLMode},
+		"connect_timeout": {strconv.Itoa(int(c.DB.ConnectTimeout.Seconds()))},
+	}
+	u := url.URL{
+		Scheme:   "postgres",
+		User:     url.UserPassword(c.DB.User, c.DB.Password),
+		Host:     net.JoinHostPort(c.DB.Host, c.DB.Port),
+		Path:     "/" + c.DB.Name,
+		RawQuery: q.Encode(),
+	}
+	return u.String()
 }
 
 func defaultLogLevel(env string) string {
